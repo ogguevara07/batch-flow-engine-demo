@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: batch-flow-engine-test
+
+  datasource:
+    url: jdbc:h2:mem:batch_flow_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    open-in-view: false
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: false
+
+  rabbitmq:
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: 2
+        max-concurrency: 4
+        prefetch: 5
+
+batch-engine:
+  chunk-size: 50
+  jdbc-batch-size: 100
+  retry:
+    max-attempts: 3
+    initial-interval-ms: 100
+    multiplier: 1.5
+    max-interval-ms: 1000
+  rabbitmq:
+    exchange: batch.direct.exchange
+    task-queue: batch.task.processing.queue
+    task-routing-key: batch.task.process
+    dlx-exchange: batch.deadletter.exchange
+    dlq-queue: batch.task.deadletter.queue
+    dlq-routing-key: batch.task.deadletter

@@ -1,0 +1,112 @@
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database (Optimized for High-Throughput Batch Processing)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: batch-flow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: batch_flow_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: >
+      postgres
+      -c max_connections=150
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c work_mem=16MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d batch_flow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - batch-network
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ Message Broker (with Management Console & DLX support)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: batch-flow-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      RABBITMQ_DEFAULT_PASS: rabbitmqpassword
+    ports:
+      - "5672:5672"     # AMQP protocol
+      - "15672:15672"   # Management Web UI (http://localhost:15672)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - batch-network
+
+  # ---------------------------------------------------------------------------
+  # Batch Flow Engine Application (REST API + Worker Consumers)
+  # ---------------------------------------------------------------------------
+  batch-flow-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: batch-flow-engine-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/batch_flow_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgrespassword
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: rabbitmq
+      SPRING_RABBITMQ_PASSWORD: rabbitmqpassword
+      WORKER_CONCURRENCY: 8
+      WORKER_MAX_CONCURRENCY: 20
+      WORKER_PREFETCH: 25
+      BATCH_DEFAULT_CHUNK_SIZE: 200
+      JDBC_BATCH_SIZE: 1000
+      BATCH_RETRY_MAX_ATTEMPTS: 3
+      BATCH_RETRY_INITIAL_INTERVAL: 1000
+      BATCH_RETRY_MULTIPLIER: 2.0
+      BATCH_RETRY_MAX_INTERVAL: 10000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - batch-network
+
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+networks:
+  batch-network:
+    driver: bridge

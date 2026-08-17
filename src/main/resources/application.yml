@@ -1,0 +1,107 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: batch-flow-engine
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/batch_flow_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: BatchFlowHikariPool
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:25}
+      minimum-idle: ${DB_POOL_MIN_IDLE:10}
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  jpa:
+    open-in-view: false
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+        generate_statistics: false
+        # Critical optimizations for bulk/batch inserts and updates
+        jdbc:
+          batch_size: ${JPA_BATCH_SIZE:500}
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        concurrency: ${WORKER_CONCURRENCY:5}
+        max-concurrency: ${WORKER_MAX_CONCURRENCY:15}
+        prefetch: ${WORKER_PREFETCH:20}
+        default-requeue-rejected: false
+
+# Custom Batch Engine Settings
+batch-engine:
+  chunk-size: ${BATCH_DEFAULT_CHUNK_SIZE:200}
+  jdbc-batch-size: ${JDBC_BATCH_SIZE:1000}
+  retry:
+    max-attempts: ${BATCH_RETRY_MAX_ATTEMPTS:3}
+    initial-interval-ms: ${BATCH_RETRY_INITIAL_INTERVAL:1000}
+    multiplier: ${BATCH_RETRY_MULTIPLIER:2.0}
+    max-interval-ms: ${BATCH_RETRY_MAX_INTERVAL:10000}
+  rabbitmq:
+    exchange: batch.direct.exchange
+    task-queue: batch.task.processing.queue
+    task-routing-key: batch.task.process
+    dlx-exchange: batch.deadletter.exchange
+    dlq-queue: batch.task.deadletter.queue
+    dlq-routing-key: batch.task.deadletter
+
+# Actuator & Metrics
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+
+# OpenAPI Swagger
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+
+logging:
+  level:
+    root: INFO
+    com.thinkcode.batch_flow_engine: DEBUG
+    org.springframework.amqp: INFO
+    org.hibernate.engine.jdbc.batch: INFO
